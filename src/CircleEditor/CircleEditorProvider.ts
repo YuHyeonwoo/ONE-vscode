@@ -49,8 +49,9 @@ export enum MessageDefs {
   // partiton of backends
   partition = 'partition',
   // commands for custom editor features
-  edit = 'edit'
-  // TODO: define messageDefs for additional features to be implemented
+  edit = 'edit',
+  getCustomOpAttrT = 'getCustomOpAttrT',
+  requestEncodingData = 'requestEncodingData'
 }
 
 /**
@@ -165,6 +166,12 @@ export class CircleEditorProvider implements vscode.CustomEditorProvider<CircleE
         return;
       case MessageDefs.edit:
         document.makeEdit(message);
+        return;
+      case MessageDefs.getCustomOpAttrT:
+        document.sendCustomType(message);
+        return;
+      case MessageDefs.requestEncodingData:
+        document.sendEncodingData(message);
         return;
       default:
         // TODO: add MessageDefs and appropriate function to handle this request
