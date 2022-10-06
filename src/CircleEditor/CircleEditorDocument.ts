@@ -17,12 +17,12 @@
 import * as flatbuffers from 'flatbuffers';
 import * as vscode from 'vscode';
 
-import {Disposable} from '../Utils/external/Dispose';
+import { Disposable } from '../Utils/external/Dispose';
 
 import * as Circle from './circle_schema_generated';
 
 import * as Types from './CircleType';
-import {Balloon} from '../Utils/Balloon';
+import { Balloon } from '../Utils/Balloon';
 import * as flexbuffers from 'flatbuffers/js/flexbuffers';
 
 /**
@@ -48,7 +48,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
   }
 
   static async create(uri: vscode.Uri):
-      Promise<CircleEditorDocument|PromiseLike<CircleEditorDocument>> {
+    Promise<CircleEditorDocument | PromiseLike<CircleEditorDocument>> {
     let bytes = new Uint8Array(await vscode.workspace.fs.readFile(uri));
     return new CircleEditorDocument(uri, bytes);
   }
@@ -132,7 +132,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
       return;
     }
 
-    let responseModelPath = {command: 'loadmodel', type: 'modelpath', value: this._uri.fsPath};
+    let responseModelPath = { command: 'loadmodel', type: 'modelpath', value: this._uri.fsPath };
     this._onDidChangeContent.fire(responseModelPath);
 
     let responseArray = this.modelData.slice(offset, offset + this.packetSize);
@@ -181,7 +181,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
    * These backups are used to implement hot exit.
    */
   async backup(destination: vscode.Uri, cancellation: vscode.CancellationToken):
-      Promise<vscode.CustomDocumentBackup> {
+    Promise<vscode.CustomDocumentBackup> {
     await this.saveAs(destination, cancellation);
 
     return {
@@ -200,11 +200,15 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
    * Guess data's type (int or float)
    */
   private guessExactType(n: any) {
+    if (isNaN(Number(n))) {
+      return 'error';
+    }
+
     if (Number(n) % 1 === 0) {
-      return "int";
+      return 'int';
     }
     else if (Number(n) % 1 !== 0) {
-      return "float";
+      return 'float';
     }
   }
 
@@ -219,11 +223,11 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
       fbb.addKey(key);
       const val = message.data[key][0];
       const valType = message.data[key][1];
-      if (valType === "boolean") {
-        if (val === "true" || val === true) {
+      if (valType === 'boolean') {
+        if (val === 'true' || val === true) {
           fbb.add(true);
         }
-        else if (val === "false" || val === false) {
+        else if (val === 'false' || val === false) {
           fbb.add(false);
         }
         else {
@@ -231,12 +235,16 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
           return;
         }
       }
-      else if (valType === "int") {
-        if (this.guessExactType(val) === 'float') {
+      else if (valType === 'int') {
+        const guessType = this.guessExactType(val);
+        if (guessType === 'float') {
           Balloon.error("'int' type doesn't include decimal point.", false);
           return;
         }
-        fbb.addInt(Number(val));
+        else if (guessType === 'error') {
+          Balloon.error('it\'s not a number', false);
+          return;
+        }
       }
       else {
         fbb.add(String(val));
@@ -244,12 +252,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
     }
     fbb.end();
     const res = fbb.finish();
-    const buf = Buffer.alloc(res.byteLength);
-    const view = new Uint8Array(res);
-    for (let i = 0; i < buf.length; ++i) {
-      buf[i] = view[i];
-    }
-    const data = Array.from(buf);
+    const data = Array.from(res);
     let responseData = {
       command: 'responseEncodingData',
       data: data
@@ -261,7 +264,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
    * Decode customOptions using flexbuffers when we click custom operator's node.
    * Send value's type of custom operator. 
    */
-  public sendCustomType(message: any) {
+  public setCustomOpAttrT(message: any) {
     const msgData: any = message.data;
     const subgraphIdx: number = msgData._subgraphIdx;
     const operatorIdx: number = msgData._nodeIdx;
@@ -281,11 +284,15 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
       let customObjDataType: any = typeof (customObj[key]);
       if (customObjDataType === 'number') {
         customObjDataType = this.guessExactType(customObj[key]);
+        if (customObjDataType === 'error') {
+          Balloon.error('It\'s not a number.', false);
+          return;
+        }
       }
       resData._type[key] = customObjDataType;
     }
     let responseData = {
-      command: 'customType',
+      command: 'setCustomOpAttrT',
       data: resData
     };
 
@@ -297,18 +304,16 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
    * This function edit Tensor's name and shape, data's type of buffer, buffer's data.
    */
   private editTensor(data: any) {
-    let name;
-    let subgraphIdx: number = 0;
+    let name = data?._name;
+    let subgraphIdx: number = Number(data._subgraphIdx);
     let argname: string;
     let tensorIdx: number;
     let isVariable: boolean = false;
     let tensorType;
     let tensorShape;
     let bufferData: any = null;
-    name = data?._name;
-    subgraphIdx = Number(data._subgraphIdx);
-    if (name === undefined || name === undefined) {
-      Balloon.error("input data is undefined", false);
+    if (name === undefined || subgraphIdx === undefined) {
+      Balloon.error('input data is undefined', false);
       return;
     }
     const argument = data._arguments;
@@ -317,8 +322,8 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
     const isChanged: boolean = argument._isChanged;
     tensorType = argument._type._dataType;
     tensorShape = argument._type._shape._dimensions;
-    if (name === undefined || name === undefined || name === undefined || name === undefined) {
-      Balloon.error("input data is undefined", false);
+    if (argname === undefined || tensorIdx === undefined || tensorType === undefined || tensorShape === undefined) {
+      Balloon.error('input data is undefined', false);
       return;
     }
     if (argument._initializer !== null) {
@@ -332,7 +337,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
 
     const targetTensor = this._model?.subgraphs[subgraphIdx]?.tensors[tensorIdx];
     if (targetTensor === undefined) {
-      Balloon.error("model is undefined", false);
+      Balloon.error('model is undefined', false);
       return;
     }
     targetTensor.name = argname;
@@ -350,30 +355,26 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
   }
 
   /**
-   * This function edit Attribute about built-in operators and custom operators.
-   * if operator code is 32, encode key and value about custom operators. and overwrite customOptions's int array.
-   * else, edit built-in operator's attributes according to Custom Type and Normal Type in CircleType.ts.
+   * This function edits Attribute for built-in operators and custom operators.
+   * If operator code is 32, encodes key and value for custom operators. and overwrites customOptions's int array.
+   * Else, edits built-in operator's attributes according to Custom Type and Normal Type in CircleType.ts.
    */
   private editAttribute(data: any) {
     let subgraphIdx: number = Number(data._subgraphIdx);
     let operatorIdx: number = Number(data._nodeIdx);
     let inputTypeName: string = data.name;
     if (inputTypeName === undefined || subgraphIdx === undefined || operatorIdx === undefined) {
-      Balloon.error("input data is undefined", false);
+      Balloon.error('input data is undefined', false);
       return;
     }
     inputTypeName = inputTypeName.toUpperCase();
-    let inputTypeOptionName: any = inputTypeName + "OPTIONS";
+    let inputTypeOptionName: any = inputTypeName + 'OPTIONS';
     let operatorCode: number = 0;
     for (let i = -4; i <= 146; i++) {
       let builtinOperatorKey = Circle.BuiltinOperator[i];
       if (builtinOperatorKey === undefined) { continue; }
       let tempKey: any = Circle.BuiltinOperator[i];
-      while (1) {
-        const tempKey2 = tempKey.replace('_', '');
-        if (tempKey.length === tempKey2.length) { break; }
-        tempKey = tempKey2;
-      }
+      tempKey = tempKey.replaceAll('_', '');
       builtinOperatorKey = tempKey;
       builtinOperatorKey = builtinOperatorKey.toUpperCase();
       if (builtinOperatorKey === inputTypeName) {
@@ -383,17 +384,17 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
     }
     const operator: any = this._model.subgraphs[subgraphIdx].operators[operatorIdx];
     if (operator === undefined) {
-      Balloon.error("model is undefined", false);
+      Balloon.error('model is undefined', false);
       return;
     }
     // built-in operator Case
     if (operatorCode !== 32) {
-      if (operator.builtinOptions === null) {
-        Balloon.error("built-in Options is null", false);
-        return;
-      }
-      if (inputTypeOptionName.indexOf("POOL2D") !== -1) {
-        inputTypeOptionName = "POOL2DOPTIONS";
+      //operator.builtinOptions의 키와 opetion을 비교해서 다를 경우 에러 처리
+      
+
+      
+      if (inputTypeOptionName.indexOf('POOL2D') !== -1) {
+        inputTypeOptionName = 'POOL2DOPTIONS';
       }
       operator.builtinOptionsType = Types.BuiltinOptionsType[inputTypeOptionName];
       const key = data._attribute.name;
@@ -402,11 +403,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
       let targetKey: any = null;
       for (const obj in operator.builtinOptions) {
         let compKey: any = key;
-        while (1) {
-          const compKey2 = compKey.replace('_', '');
-          if (compKey.length === compKey2.length) { break; }
-          compKey = compKey2;
-        }
+        compKey = compKey.replaceAll('_', '');
         if (obj.toUpperCase() === compKey.toUpperCase()) {
           targetKey = obj;
         }
@@ -460,12 +457,12 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
             operator.builtinOptions[targetKey] = true;
           }
           else {
-            Balloon.error('"boolean" type must be "true" or "false".', false);
+            Balloon.error("'boolean' type must be 'true' or 'false'.", false);
             return;
           }
         }
         // float type, epsilon type
-        else if (type === "float16" || type === "float32" || type === "float64" || type === "float" || type === "epsilon") {
+        else if (type === 'float16' || type === 'float32' || type === 'float64' || type === 'float' || type === 'epsilon') {
           operator.builtinOptions[targetKey] = parseFloat(value);
         }
         else {
@@ -474,8 +471,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
       }
     }
 
-    // custom operator case
-    else if (operatorCode === 32) {
+    else if (operatorCode === 32) { // custom operator case
       operator.builtinOptionsType = 0;
       operator.builtinOPtions = null;
       const customName = data._attribute.name;
@@ -488,12 +484,12 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
       for (const key of customKeyArray) {
         fbb.addKey(key);
         let val = data._attribute[key];
-        const valType = data._attribute[key + "_type"];
-        if (valType === "boolean") {
-          if (val === "true" || val === true) {
+        const valType = data._attribute[key + '_type'];
+        if (valType === 'boolean') {
+          if (val === 'true' || val === true) {
             fbb.add(true);
           }
-          else if (val === "false" || val === false) {
+          else if (val === 'false' || val === false) {
             fbb.add(false);
           }
           else {
@@ -501,9 +497,14 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
             return;
           }
         }
-        else if (valType === "int") {
-          if (this.guessExactType(val) === 'float') {
+        else if (valType === 'int') {
+          const guessType = this.guessExactType(val);
+          if (guessType === 'float') {
             Balloon.error("'int' type doesn't include decimal point.", false);
+            return;
+          }
+          else if (guessType === 'error') {
+            Balloon.error('it\'s not a number', false);
             return;
           }
           fbb.addInt(Number(val));
@@ -514,12 +515,7 @@ export class CircleEditorDocument extends Disposable implements vscode.CustomDoc
       }
       fbb.end();
       let res = fbb.finish();
-      const buf = Buffer.alloc(res.byteLength);
-      const view = new Uint8Array(res);
-      for (let i = 0; i < buf.length; ++i) {
-        buf[i] = view[i];
-      }
-      let res2 = Array.from(buf);
+      let res2 = Array.from(res);
       operator.customOptions = res2;
     }
     return;
